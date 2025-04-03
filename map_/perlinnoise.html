@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>p5.js Sketch</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.min.js"></script>
+    <!-- Optional: Uncomment if you need sound -->
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/addons/p5.sound.min.js"></script> -->
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <script>
+        let octovases = 4;
+        let falloff = 0.5;
+        let noiseMode = 2;
+
+        function setup() {
+            createCanvas(windowWidth, windowHeight);
+            // background(220);
+            smooth();
+            cursor('crosshair');
+            pixelDensity(2);
+        }
+
+        function draw() {
+            background(0);
+            noiseDetail(octovases, falloff);
+
+            let noiseXRange = mouseX / 10;
+            let noiseYRange = mouseY / 10;
+
+            loadPixels();
+
+            for (let x = 0; x < width; x++) {
+                for (let y = 0; y < height; y++) {
+                    let noiseX = map(x, 0, width, 0, noiseXRange);
+                    let noiseY = map(y, 0, height, 0, noiseYRange);
+                    let noiseValue = 0;
+
+                    if(noiseMode === 1) {
+                        noiseValue = noise(noiseX, noiseY) * 255;
+                    } else if (noiseMode === 2) {
+                        let n = noise(noiseX, noiseY) * 24;
+                        noiseValue = (n - (int(n))) * 255;
+                    }
+
+                    pixels[(x + y * width) * 4] = noiseValue; // Red
+                }
+            }
+            updatePixels();
+        }
+
+        function windowResized() {
+            resizeCanvas(windowWidth, windowHeight);
+        }
+    </script>
+</body>
+
+</html>
