@@ -167,6 +167,18 @@ let sketch = function (p) {
         return curl;
     }
 
+    function getMousePos() {
+        let x = p.mouseX;
+        let y = p.mouseY;
+
+        if (x < 0) x = 0;
+        if (x > p.width) x = p.width;
+        if (y < 0) y = 0;
+        if (y > p.height) y = p.height;
+
+        return { x: x, y: y };
+    }
+
     // エージェントクラス
     class Agent {
         constructor() {
