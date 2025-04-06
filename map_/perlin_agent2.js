@@ -1,7 +1,7 @@
 let sketch = function (p) {
     // ------ エージェントの設定 ------
     let agents = [];  // エージェントの配列
-    let agentsCount = 4000;  // 表示するエージェントの数
+    let agentsCount = 3000;  // 表示するエージェントの数
     let noiseScale = 300;  // ノイズのスケール
     let noiseStrength = 10;  // ノイズの強さ
     let overlayAlpha = 10;  // 背景の透明度
@@ -233,7 +233,7 @@ let sketch = function (p) {
     }
 
   // Agent クラス
-  class Agent {
+  class Agent { 
     constructor() {
       this.p = p.createVector(p.random(p.width), p.random(p.height));
       this.pOld = p.createVector(this.p.x, this.p.y);

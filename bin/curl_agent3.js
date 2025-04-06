@@ -1,14 +1,14 @@
 let sketch = function (p) {
     // 基本設定
     let agents = [];
-    let agentsCount = 10000;
-    let noiseScale = 1000;
+    let agentsCount = 20000;
+    let noiseScale = 1500;
     let noiseStrength = 5;
     let overlayAlpha = 20;
     let strokeWidth = 0.2;
     let drawMode = 3;
     let time = 0;
-    let timeSpeed = 0.0005;
+    let timeSpeed = 0.001;
 
     // ノイズマップ設定
     let showNoiseMap = false;
@@ -17,11 +17,17 @@ let sketch = function (p) {
     let noiseMapAlpha = 100;
 
     // マウス相互作用設定
-    let mouseForceStrength = 25;
-    let mouseForceRadius = 200;
-    let mouseForceActive = true;
+    let mouseForceStrength = 15;
+    let mouseForceRadius = 128;
+    let mouseForceActive = false;
     let mouseAttract = false; // true: 引力, false: 斥力
     let mousePos = { x: 0, y: 0 };
+    let prevMousePos = { x: 0, y: 0 };
+    let mouseVelocity = { x: 0, y: 0 };
+    let mouseSpeedThreshold = 2; // マウス移動速度の閾値
+    let mouseForceDecay = 0.95; // 外力の減衰率
+    let mouseTrail = []; // マウスの軌跡
+    let maxTrailLength = 10; // 軌跡の最大長
 
     p.setup = function () {
         p.createCanvas(p.windowWidth, p.windowHeight);
@@ -34,28 +40,47 @@ let sketch = function (p) {
         for (let i = 0; i < agentsCount; i++) {
             agents.push(new Agent());
         }
+
+        // マウス位置の初期化
+        mousePos = getMousePos();
+        prevMousePos = { x: mousePos.x, y: mousePos.y };
     };
 
     p.draw = function () {
         time += timeSpeed;
 
-        // マウス位置の更新（ドラッグ中のみ力を適用）
-        // if (p.mouseIsPressed) {
-        //     mouseForceActive = true;
-        // } else {
-        //     mouseForceActive = false;
-        // }
-
+        // マウス位置と速度の更新
+        prevMousePos = { x: mousePos.x, y: mousePos.y };
         mousePos = getMousePos();
+
+        // マウスの速度を計算
+        mouseVelocity.x = mousePos.x - prevMousePos.x;
+        mouseVelocity.y = mousePos.y - prevMousePos.y;
+
+        // マウスの速度が閾値を超えたら外力を適用
+        let mouseSpeed = Math.sqrt(mouseVelocity.x * mouseVelocity.x + mouseVelocity.y * mouseVelocity.y);
+        if (mouseSpeed > mouseSpeedThreshold) {
+            mouseForceActive = true;
+
+            // マウスの軌跡を追加
+            addToMouseTrail(mousePos.x, mousePos.y);
+        } else {
+            // 速度が閾値以下なら減衰
+            mouseForceActive = mouseForceActive && (mouseTrail.length > 0);
+        }
+
+        // 軌跡の減衰
+        updateMouseTrail();
+
         // 半透明の背景で軌跡を徐々にフェードアウト
         p.fill(255, overlayAlpha);
         p.noStroke();
         p.rect(0, 0, p.width, p.height);
 
         // マウス影響範囲の表示
-        // if (mouseForceActive) {
-        //     drawMouseForce();
-        // }
+        if (mouseForceActive) {
+            drawMouseMotionForce();
+        }
 
         // ノイズマップを表示
         if (showNoiseMap) {
@@ -80,58 +105,91 @@ let sketch = function (p) {
             p.noStroke();
             p.textSize(12);
             p.text("Mode: " + (drawMode === 1 ? "Curl" : (drawMode === 2 ? "Normal" : "Time Curl")) +
-                ", Mouse: " + (mouseAttract ? "Attract" : "Repel") +
+                ", Mouse Speed: " + mouseSpeed.toFixed(1) +
                 ", Force: " + mouseForceStrength.toFixed(1), 10, 20);
-            p.text("Controls: V: toggle map, 1-3: mode, A: toggle attract/repel", 10, 40);
-            p.text("Mouse drag: apply force, +/-: adjust force", 10, 60);
+            p.text("Controls: V: toggle map, 1-3: mode, +/-: adjust force", 10, 40);
         }
     };
 
-    // マウスの影響範囲を描画
-    function drawMouseForce() {
+    // マウスの軌跡を追加
+    function addToMouseTrail(x, y) {
+        mouseTrail.push({
+            x: x,
+            y: y,
+            vx: mouseVelocity.x,
+            vy: mouseVelocity.y,
+            age: 1.0 // 新鮮度 (1.0 = 新しい、0.0 = 古い)
+        });
+
+        // 最大長を超えたら先頭を削除
+        if (mouseTrail.length > maxTrailLength) {
+            mouseTrail.shift();
+        }
+    }
+
+    // マウスの軌跡を更新（古いポイントを減衰）
+    function updateMouseTrail() {
+        for (let i = mouseTrail.length - 1; i >= 0; i--) {
+            mouseTrail[i].age *= mouseForceDecay;
+
+            // 十分に古くなったら削除
+            if (mouseTrail[i].age < 0.01) {
+                mouseTrail.splice(i, 1);
+            }
+        }
+    }
+
+    // マウスの動きに基づく外力を描画
+    function drawMouseMotionForce() {
         p.push();
-        p.noFill();
-        p.stroke(mouseAttract ? 0 : 255, 0, mouseAttract ? 255 : 0, 100);
-        p.strokeWeight(1);
-        p.ellipse(mousePos.x, mousePos.y, mouseForceRadius * 2);
 
-        // 力の方向を示す矢印
-        let arrowCount = 8;
-        for (let i = 0; i < arrowCount; i++) {
-            let angle = i * (p.TWO_PI / arrowCount);
-            let radius = mouseForceRadius * 0.7;
-            let startX = mousePos.x + p.cos(angle) * radius * 0.5;
-            let startY = mousePos.y + p.sin(angle) * radius * 0.5;
-            let endX, endY;
+        // マウスの軌跡を描画
+        if (mouseTrail.length > 1) {
+            p.noFill();
+            p.strokeWeight(2);
+            p.beginShape();
 
-            if (mouseAttract) {
-                endX = mousePos.x + p.cos(angle) * radius * 0.2;
-                endY = mousePos.y + p.sin(angle) * radius * 0.2;
-            } else {
-                endX = mousePos.x + p.cos(angle) * radius;
-                endY = mousePos.y + p.sin(angle) * radius;
+            for (let i = 0; i < mouseTrail.length; i++) {
+                let point = mouseTrail[i];
+                let alpha = Math.floor(point.age * 200);
+                p.stroke(100, 100, 255, alpha);
+                p.vertex(point.x, point.y);
+
+                // 速度ベクトルを矢印として表示
+                if (i % 2 === 0) {
+                    let arrowLength = Math.sqrt(point.vx * point.vx + point.vy * point.vy) * 2;
+                    if (arrowLength > 5) {
+                        let angle = Math.atan2(point.vy, point.vx);
+                        let arrowSize = arrowLength * 0.3;
+
+                        let endX = point.x + Math.cos(angle) * arrowLength;
+                        let endY = point.y + Math.sin(angle) * arrowLength;
+
+                        p.line(point.x, point.y, endX, endY);
+
+                        let arrowAngle1 = angle + Math.PI * 0.8;
+                        let arrowAngle2 = angle - Math.PI * 0.8;
+
+                        let arrowX1 = endX + Math.cos(arrowAngle1) * arrowSize;
+                        let arrowY1 = endY + Math.sin(arrowAngle1) * arrowSize;
+                        let arrowX2 = endX + Math.cos(arrowAngle2) * arrowSize;
+                        let arrowY2 = endY + Math.sin(arrowAngle2) * arrowSize;
+
+                        p.line(endX, endY, arrowX1, arrowY1);
+                        p.line(endX, endY, arrowX2, arrowY2);
+                    }
+                }
             }
 
-            p.line(startX, startY, endX, endY);
-
-            // 矢印の先端
-            let arrowAngle = mouseAttract ? (angle + p.PI) : angle;
-            let arrowSize = radius * 0.1;
-            let arrowX1 = endX + p.cos(arrowAngle + 0.3) * arrowSize;
-            let arrowY1 = endY + p.sin(arrowAngle + 0.3) * arrowSize;
-            let arrowX2 = endX + p.cos(arrowAngle - 0.3) * arrowSize;
-            let arrowY2 = endY + p.sin(arrowAngle - 0.3) * arrowSize;
-
-            p.line(endX, endY, arrowX1, arrowY1);
-            p.line(endX, endY, arrowX2, arrowY2);
+            p.endShape();
         }
+
         p.pop();
     }
 
     // ノイズマップを描画する関数
     function drawNoiseMap() {
         p.push();
-
 
         if (noiseMapMode === 1) {
             // 点でノイズマップを表示
@@ -142,8 +200,11 @@ let sketch = function (p) {
                     if (drawMode === 1) {
                         let curl = curlNoise(x / noiseScale, y / noiseScale);
                         val = curl.mag();
-                    } else {
+                    } else if (drawMode === 2) {
                         val = p.noise(x / noiseScale, y / noiseScale) * noiseStrength;
+                    } else {
+                        let curl = curlNoiseTime(x / noiseScale, y / noiseScale, time);
+                        val = curl.mag();
                     }
 
                     let brightness = p.map(val, 0, noiseStrength, 0, 255);
@@ -164,8 +225,11 @@ let sketch = function (p) {
                     if (drawMode === 1) {
                         let curl = curlNoise(x / noiseScale, y / noiseScale);
                         angle = p.atan2(curl.y, curl.x);
-                    } else {
+                    } else if (drawMode === 2) {
                         angle = p.noise(x / noiseScale, y / noiseScale) * p.TWO_PI * 2;
+                    } else {
+                        let curl = curlNoiseTime(x / noiseScale, y / noiseScale, time);
+                        angle = p.atan2(curl.y, curl.x);
                     }
 
                     let len = noiseGridSize * 0.8;
@@ -191,8 +255,7 @@ let sketch = function (p) {
                     } else if (drawMode === 2) {
                         angle = p.noise(x / noiseScale, y / noiseScale) * p.TWO_PI * 2;
                         magnitude = noiseStrength;
-                    }
-                    else {
+                    } else {
                         let curl = curlNoiseTime(x / noiseScale, y / noiseScale, time);
                         angle = p.atan2(curl.y, curl.x);
                         magnitude = curl.mag();
@@ -211,8 +274,9 @@ let sketch = function (p) {
 
     // 矢印を描画する関数
     function drawArrow(x, y, angle, length) {
-        // Set stroke color to black
-        p.stroke(0);
+
+        p.stroke(0, 100);
+
         let endX = x + p.cos(angle) * length;
         let endY = y + p.sin(angle) * length;
 
@@ -245,36 +309,44 @@ let sketch = function (p) {
         if (p.key === 'h' || p.key === 'H') noiseGridSize = p.constrain(noiseGridSize - 2, 4, 50);  // グリッドサイズ減少
 
         // マウス力の設定
-        if (p.key === 'a' || p.key === 'A') mouseAttract = !mouseAttract;  // 引力/斥力の切替
         if (p.key === '+') mouseForceStrength = p.constrain(mouseForceStrength + 0.5, 0, 20);  // 力の強さを増加
         if (p.key === '-') mouseForceStrength = p.constrain(mouseForceStrength - 0.5, 0, 20);  // 力の強さを減少
         if (p.key === '[') mouseForceRadius = p.constrain(mouseForceRadius - 10, 50, 500);  // 影響範囲を減少
         if (p.key === ']') mouseForceRadius = p.constrain(mouseForceRadius + 10, 50, 500);  // 影響範囲を増加
     };
 
-    // マウス位置からの力を計算
-    function calculateMouseForce(pos) {
-        // if (!mouseForceActive) return p.createVector(0, 0);
+    // マウスの動きによる外力を計算
+    function calculateMouseMotionForce(pos) {
+        if (!mouseForceActive || mouseTrail.length === 0) return p.createVector(0, 0);
 
-        let dx = pos.x - mousePos.x;
-        let dy = pos.y - mousePos.y;
-        let distance = p.sqrt(dx * dx + dy * dy);
+        let totalForce = p.createVector(0, 0);
 
-        if (distance > mouseForceRadius || distance < 0.1) return p.createVector(0, 0);
+        // すべての軌跡ポイントからの影響を計算
+        for (let i = 0; i < mouseTrail.length; i++) {
+            let point = mouseTrail[i];
+            let dx = pos.x - point.x;
+            let dy = pos.y - point.y;
+            let distance = p.sqrt(dx * dx + dy * dy);
 
-        // 距離に応じた力の強さ（距離が近いほど強く）
-        let strength = p.map(distance, 0, mouseForceRadius, mouseForceStrength, 0);
-        let angle;
+            if (distance > mouseForceRadius || distance < 0.1) continue;
 
-        if (mouseAttract) {
-            // 引力（マウスに向かう）
-            angle = p.atan2(dy, dx) + p.PI;
-        } else {
-            // 斥力（マウスから離れる）
-            angle = p.atan2(dy, dx);
+            // 距離に応じた力の強さ
+            // Normalize distance to 0-1 range
+            let normalizedDist = distance / mouseForceRadius;
+            // Use exponential falloff for more extreme effect
+            let falloff = Math.exp(-8 * normalizedDist);
+            // Final strength with age factor
+            let strength = mouseForceStrength * falloff * point.age;
+
+            // 速度方向に力を適用
+            let forceX = point.vx * strength / 10;
+            let forceY = point.vy * strength / 10;
+
+            totalForce.x += forceX;
+            totalForce.y += forceY;
         }
 
-        return p.createVector(p.cos(angle) * strength, p.sin(angle) * strength);
+        return totalForce;
     }
 
     // カールノイズの生成
@@ -331,9 +403,9 @@ let sketch = function (p) {
         }
 
         updateCurl() {
-            // カールノイズ + マウス力で更新
+            // カールノイズ + マウスの動きによる外力
             let curl = curlNoise(this.p.x / noiseScale, this.p.y / noiseScale);
-            let mouseForce = calculateMouseForce(this.p);
+            let mouseForce = calculateMouseMotionForce(this.p);
 
             // 合成力を計算
             this.p.x += (curl.x + mouseForce.x) * this.stepSize * 0.1;
@@ -343,9 +415,9 @@ let sketch = function (p) {
         }
 
         updateCurlTime(t) {
-            // 時間を考慮したカールノイズ + マウス力で更新
+            // 時間を考慮したカールノイズ + マウスの動きによる外力
             let curl = curlNoiseTime(this.p.x / noiseScale, this.p.y / noiseScale, t);
-            let mouseForce = calculateMouseForce(this.p);
+            let mouseForce = calculateMouseMotionForce(this.p);
 
             // 合成力を計算
             this.p.x += (curl.x + mouseForce.x) * this.stepSize * 0.1;
@@ -355,10 +427,10 @@ let sketch = function (p) {
         }
 
         updateNormal() {
-            // 通常ノイズ + マウス力で更新
+            // 通常ノイズ + マウスの動きによる外力
             let angle = p.noise(this.p.x / noiseScale, this.p.y / noiseScale) * p.TWO_PI * 2;
             let curl = p.createVector(p.cos(angle), p.sin(angle)).mult(noiseStrength);
-            let mouseForce = calculateMouseForce(this.p);
+            let mouseForce = calculateMouseMotionForce(this.p);
 
             // 合成力を計算
             this.p.x += (curl.x + mouseForce.x) * this.stepSize * 0.1;
